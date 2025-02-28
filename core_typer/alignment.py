@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import sys
 import logging
 
 from . import utils
@@ -42,12 +43,10 @@ def run_alignment(alignment_params):
     :rtype: None
     """
     alignment_command = build_alignment_command(alignment_params)
-    logging.info(json.dumps({
-        "event_type": "alignment_started",
-        "alignment_command": " ".join(alignment_command),
-    }))
+    alignment_command_str = " ".join(alignment_command)
+    logging.info(f"Alignment started with command: {alignment_command_str}")
     alignment_start_timestamp = datetime.datetime.now()
-    alignment_result = utils.run_command(" ".join(alignment_command))
+    alignment_result = utils.run_command(alignment_command_str)
     alignment_end_timestamp = datetime.datetime.now()
     alignment_elapsed_time = alignment_end_timestamp - alignment_start_timestamp
     expected_alignment_result_files = {
@@ -56,14 +55,8 @@ def run_alignment(alignment_params):
     }
     for alignment_result_file_type, alignment_result_file in expected_alignment_result_files.items():
         if not os.path.exists(alignment_result_file):
-            logging.error(json.dumps({
-                "event_type": "alignment_failed",
-                "alignment_result_file_type": alignment_result_file_type,
-                "alignment_result_file": alignment_result_file,
-            }))
+            logging.error(f"Alignment failed. Missing output file: {alignment_result_file}")
             sys.exit(-1)
-    logging.info(json.dumps({
-        "event_type": "alignment_completed",
-        "elapsed_time_seconds": str(alignment_elapsed_time.total_seconds()),
-    }))
+    alignment_elapsed_time_seconds_str = str(round(alignment_elapsed_time.total_seconds(), 2))
+    logging.info(f"Alignment completed. Elapsed time: {alignment_elapsed_time_seconds_str} seconds.")
     

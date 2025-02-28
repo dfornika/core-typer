@@ -53,36 +53,21 @@ def main():
     alignment.run_alignment(alignment_params)
 
     kma_result_file = os.path.join(args.tmpdir, "kma-out.res")
-    logging.info(json.dumps({
-        "event_type": "parse_kma_result_started",
-        "kma_result_file": kma_result_file,
-    }))
+    logging.debug(f"Parsing kma result file: {kma_result_file}")
     parsed_kma_result = parsers.parse_kma_result(kma_result_file)
-    logging.info(json.dumps({
-        "event_type": "parse_kma_result_completed",
-        "kma_result_file": kma_result_file,
-    }))
+    logging.debug(f"Parsing kma result file completed: {kma_result_file}")
 
     allele_calls = []
     for locus_id, kma_results in parsed_kma_result.items():
         best_allele = allele_calling.choose_best_allele(kma_results, min_identity=args.min_identity, min_coverage=args.min_coverage)
         allele_calls.append(best_allele)
 
-    logging.info(json.dumps({
-        "event_type": "parse_kma_mapstat_started",
-    }))
-    parsed_kma_mapstat = parsers.parse_kma_mapstat(os.path.join(args.tmpdir, "kma-out.mapstat"))
-    logging.info(json.dumps({
-        "event_type": "parse_kma_mapstat_completed",
-    }))
+    kma_mapstat_file = os.path.join(args.tmpdir, "kma-out.mapstat")
+    logging.info(f"Parsing kma mapstat file: {kma_mapstat_file}")
+    parsed_kma_mapstat = parsers.parse_kma_mapstat(kma_mapstat_file)
+    logging.debug(f"Parsing kma mapstat file completed: {kma_mapstat_file}")
 
     allele_calls_file = os.path.abspath(os.path.join(args.outdir, "allele_calls.csv"))
-    logging.info(json.dumps({
-        "event_type": "write_allele_calls_started",
-        "allele_calls_file": allele_calls_file,
-    }))
+    logging.info(f"Writing allele calls: {allele_calls_file}")
     allele_calling.write_allele_calls(allele_calls_file, allele_calls)
-    logging.info(json.dumps({
-        "event_type": "write_allele_calls_completed",
-        "allele_calls_file": allele_calls_file,
-    }))
+    logging.debug(f"Writing allele calls completed: {allele_calls_file}")

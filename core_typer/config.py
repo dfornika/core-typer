@@ -12,9 +12,9 @@ def configure_logging(params):
         log_level = logging.INFO
 
     logging.basicConfig(
-        format='{"timestamp": "%(asctime)s.%(msecs)03d", "level": "%(levelname)s", "message": %(message)s}',
+        format='%(asctime)s.%(msecs)03d\t%(levelname)s:\t%(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
         encoding='utf-8',
         level=log_level,
     )
-    logging.debug(json.dumps({"event_type": "debug_logging_enabled"}))
+    logging.debug(f"Debug logging enabled.")
