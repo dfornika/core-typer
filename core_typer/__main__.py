@@ -6,12 +6,12 @@ import datetime
 import json
 import logging
 import os
-import subprocess
-import sys
+import shutil
 
 from . import __version__
 from . import alignment
 from . import allele_calling
+from . import qc
 from . import config
 from . import parsers
 from . import utils
@@ -27,7 +27,8 @@ def main():
     parser.add_argument('--R1', help='Read 1')
     parser.add_argument('--R2', help='Read 2')
     parser.add_argument('--scheme', help='cgMLST scheme')
-    parser.add_argument('--tmpdir', default='/tmp', help='Temporary directory (default: /tmp)')
+    parser.add_argument('--tmpdir', default='./tmp', help='Temporary directory (default: ./tmp)')
+    parser.add_argument('--no-cleanup', action='store_true', help='Do not cleanup temporary directory')
     parser.add_argument('--log-level', default='info', help='Log level (default: info)')
     parser.add_argument('--outdir', help='Output directory')
     args = parser.parse_args()
@@ -36,8 +37,10 @@ def main():
 
     config.configure_logging({'log_level': args.log_level})
 
-    if not os.path.exists(args.tmpdir):
-        os.makedirs(args.tmpdir)
+    now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    analysis_tmpdir = os.path.join(args.tmpdir, f"{now_str}-core-typer-tmp")
+    if not os.path.exists(analysis_tmpdir):
+        os.makedirs(analysis_tmpdir)
 
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
@@ -47,12 +50,12 @@ def main():
         'R2': args.R2,
         'threads': args.threads,
         'scheme': args.scheme,
-        'tmpdir': args.tmpdir,
+        'tmpdir': analysis_tmpdir,
     }
 
     alignment.run_alignment(alignment_params)
 
-    kma_result_file = os.path.join(args.tmpdir, "kma-out.res")
+    kma_result_file = os.path.join(analysis_tmpdir, "kma-out.res")
     logging.debug(f"Parsing kma result file: {kma_result_file}")
     parsed_kma_result = parsers.parse_kma_result(kma_result_file)
     logging.debug(f"Parsing kma result file completed: {kma_result_file}")
@@ -62,12 +65,34 @@ def main():
         best_allele = allele_calling.choose_best_allele(kma_results, min_identity=args.min_identity, min_coverage=args.min_coverage)
         allele_calls.append(best_allele)
 
-    kma_mapstat_file = os.path.join(args.tmpdir, "kma-out.mapstat")
+    qc_stats = qc.calculate_qc_stats(allele_calls)
+
+    qc_stats_file = os.path.join(args.outdir, 'qc.csv')
+    logging.info(f"Writing QC stats: {qc_stats_file}")
+    qc_fieldnames = [
+        'mean_depth',
+        'stdev_depth',
+        'percent_called',
+    ]
+    with open(qc_stats_file, 'w') as f:
+        writer = csv.DictWriter(f, fieldnames=qc_fieldnames, dialect='unix', quoting=csv.QUOTE_MINIMAL, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerow(qc_stats)
+    logging.debug(f"Writing QC stats completed: {qc_stats_file}")
+
+    kma_mapstat_file = os.path.join(analysis_tmpdir, "kma-out.mapstat")
     logging.info(f"Parsing kma mapstat file: {kma_mapstat_file}")
     parsed_kma_mapstat = parsers.parse_kma_mapstat(kma_mapstat_file)
     logging.debug(f"Parsing kma mapstat file completed: {kma_mapstat_file}")
 
-    allele_calls_file = os.path.abspath(os.path.join(args.outdir, "allele_calls.csv"))
+    allele_calls_file = os.path.join(args.outdir, "allele_calls.csv")
     logging.info(f"Writing allele calls: {allele_calls_file}")
     allele_calling.write_allele_calls(allele_calls_file, allele_calls)
     logging.debug(f"Writing allele calls completed: {allele_calls_file}")
+
+    
+    if not args.no_cleanup:
+        shutil.rmtree(analysis_tmpdir)
+        logging.info(f"Deleted tmp directory: {analysis_tmpdir}")
+    else:
+        logging.info(f"Skipped deleting tmp directory: {analysis_tmpdir}")

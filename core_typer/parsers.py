@@ -1,4 +1,7 @@
 import csv
+import logging
+
+logger = logging.getLogger(__name__)
 
 def parse_kma_result(kma_result_file):
     """
@@ -138,9 +141,67 @@ def parse_kma_aln(kma_aln_file):
     alignments_by_template_id = {}
     with open(kma_aln_file, 'r') as f:
         alignment = {}
+        template_id = None
+        template_seq = ""
+        query_seq = ""
         for line in f:
+            line = line.strip()
             if line.startswith("#"):
-                template_id = line.strip().split(" ")[1]
+                if template_id:
+                    alignment[template_id] = {
+                        'template': template_seq,
+                        'query': query_seq,
+                    }
+                    template_seq = ""
+                    query_seq = ""
+                template_id = line.split(" ")[1]
             else:
                 if line.startswith('template'):
-                    sequence = line.strip().split(" ")[1]
+                    template_seq_line = line.split(":")[1].strip()
+                    template_seq += template_seq_line
+                elif line.startswith('query'):
+                    query_seq_line = line.split(":")[1].strip()
+                    query_seq += query_seq_line
+
+        alignment[template_id] = {
+            'template': template_seq,
+            'query': query_seq,
+        }
+
+    return alignments_by_template_id
+
+
+def parse_allele_calls(allele_calls_path):
+    """
+    """
+    allele_calls = []
+    int_fields = [
+        'score',
+        'template_length',
+    ]
+    float_fields = [
+        'percent_identity',
+        'percent_coverage',
+        'depth',
+    ]
+    
+    with open(allele_calls_path, 'r') as f:
+        reader = csv.DictReader(f, delimiter=',')
+        for row in reader:
+            for field in float_fields:
+                try:
+                    row[field] = float(row[field])
+                except ValueError as e:
+                    logger.error(f"Error parsing value: {row[field]} as float.")
+                    exit(-1)
+            for field in int_fields:
+                try:
+                    row[field] = int(row[field])
+                except ValueError as e:
+                    logger.error(f"Error parsing value: {row[field]} as int.")
+                    exit(-1)
+
+            allele_calls.append(row)
+
+    return allele_calls
+                
