@@ -69,15 +69,7 @@ def main():
 
     qc_stats_file = os.path.join(args.outdir, 'qc.csv')
     logging.info(f"Writing QC stats: {qc_stats_file}")
-    qc_fieldnames = [
-        'mean_depth',
-        'stdev_depth',
-        'percent_called',
-    ]
-    with open(qc_stats_file, 'w') as f:
-        writer = csv.DictWriter(f, fieldnames=qc_fieldnames, dialect='unix', quoting=csv.QUOTE_MINIMAL, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerow(qc_stats)
+    qc.write_qc_stats(qc_stats, qc_stats_file)
     logging.debug(f"Writing QC stats completed: {qc_stats_file}")
 
     kma_mapstat_file = os.path.join(analysis_tmpdir, "kma-out.mapstat")
@@ -90,6 +82,10 @@ def main():
     allele_calling.write_allele_calls(allele_calls_file, allele_calls)
     logging.debug(f"Writing allele calls completed: {allele_calls_file}")
 
+    allele_profile_file = os.path.join(args.outdir, "allele_profile.csv")
+    logging.info(f"Writing allele profile: {allele_profile_file}")
+    allele_calling.write_allele_profile(allele_calls, args.scheme, allele_profile_file)
+    logging.debug(f"Writing allele calls completed: {allele_calls_file}")
     
     if not args.no_cleanup:
         shutil.rmtree(analysis_tmpdir)

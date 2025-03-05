@@ -205,3 +205,20 @@ def parse_allele_calls(allele_calls_path):
 
     return allele_calls
                 
+
+def parse_locus_names(locus_names_path):
+    """
+    Parse the kma index .names file to get the names of all loci
+    in the order that they appear in the file.
+    """
+    locus_names = []
+    with open(locus_names_path, 'r') as f:
+        for line in f:
+            line_split = line.strip().split('_')
+            locus_name = line_split[0]
+
+            if locus_name not in locus_names:
+                locus_names.append(locus_name)
+
+    return locus_names
+            

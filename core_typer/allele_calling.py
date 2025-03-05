@@ -1,5 +1,9 @@
 import csv
+import logging
 
+from . import parsers
+
+logger = logging.getLogger(__name__)
 
 def choose_best_allele(kma_results, min_identity=100.0, min_coverage=100.0):
     """
@@ -64,3 +68,30 @@ def write_allele_calls(allele_calls_file, allele_calls):
                 elif fieldname == "percent_coverage":
                     output_record[fieldname] = allele_call["template_coverage"]
             writer.writerow(output_record)
+
+
+def write_allele_profile(allele_calls, scheme_path, allele_profile_path):
+    """
+    """
+
+    names_file = f"{scheme_path}.name"
+    locus_ids = parsers.parse_locus_names(names_file)
+    allele_calls_by_locus_id = {}
+    for allele_call in allele_calls:
+        locus_id = allele_call['locus_id']
+        if locus_id not in allele_calls_by_locus_id:
+            allele_calls_by_locus_id[locus_id] = allele_call
+        else:
+            raise ValueError(f"Duplicate allele call found for locus {locus_id}")
+
+    with open(allele_profile_path, 'w') as f:
+        f.write(','.join(locus_ids) + '\n')
+        for locus_id in locus_ids:
+            if locus_id in allele_calls_by_locus_id:
+                allele_id = allele_calls_by_locus_id[locus_id]['allele_id']
+            else:
+                allele_id = '-'
+            f.write(allele_id)
+            if locus_id != locus_ids[-1]:
+                f.write(',')
+        f.write('\n')

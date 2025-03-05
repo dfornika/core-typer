@@ -1,3 +1,4 @@
+import csv
 import statistics
 
 def calculate_qc_stats(allele_calls):
@@ -25,3 +26,16 @@ def calculate_qc_stats(allele_calls):
 
     
     
+def write_qc_stats(qc_stats, qc_stats_file):
+    """
+    Write QC stats to a file.
+    """
+    qc_fieldnames = [
+        'mean_depth',
+        'stdev_depth',
+        'percent_called',
+    ]
+    with open(qc_stats_file, 'w') as f:
+        writer = csv.DictWriter(f, fieldnames=qc_fieldnames, dialect='unix', quoting=csv.QUOTE_MINIMAL, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerow(qc_stats)
