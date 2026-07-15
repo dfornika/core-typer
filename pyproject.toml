@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "core-typer"
+dynamic = ["version"]
+description = "A cgMLST Typing Tool"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Dan Fornika", email = "dfornika@gmail.com" },
+]
+requires-python = ">=3.9"
+keywords = ["cgMLST", "bioinformatics", "kma"]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Homepage = "https://github.com/dfornika/core-typer"
+
+[project.scripts]
+core-typer = "core_typer.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.dynamic]
+version = { attr = "core_typer.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["core_typer*"]
