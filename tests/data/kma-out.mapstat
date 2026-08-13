@@ -1,0 +1,7 @@
+## method	KMA
+## version	1.4.0
+## database	scheme
+## fragmentCount	1000
+#refSequence	readCount	fragmentCount	mapScoreSum	refCoveredPositions	refConsensusSum	bpTotal	depthVariance	nucHighDepthVariance	depthMax	snpSum	insertSum	deletionSum	readCountAln	fragmentCountAln
+locusA_1	1000	500	480000	500	495	100000	1.2	3	120	2	0	1	500	480
+locusB_1	600	300	280000	300	298	60000	0.8	1	80	1	0	0	300	290

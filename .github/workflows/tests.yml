@@ -1,0 +1,54 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Miniforge (for kma/wgsim/blast from bioconda)
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          python-version: ${{ matrix.python-version }}
+          channels: bioconda,conda-forge
+          channel-priority: strict
+          activate-environment: core-typer-ci
+
+      - name: Install kma, wgsim, and blast
+        shell: bash -l {0}
+        run: conda install -y kma wgsim blast
+
+      - name: Verify kma/kma_index/wgsim/blastn/makeblastdb are on PATH
+        shell: bash -l {0}
+        # Fail loudly here rather than letting the integration tests silently
+        # skip if the bioconda install didn't actually work.
+        run: which kma kma_index wgsim blastn makeblastdb
+
+      - name: Install core-typer
+        shell: bash -l {0}
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: pytest tests/ -v
+
+      - name: Verify integration tests actually ran (not skipped)
+        shell: bash -l {0}
+        # bash -l overrides GitHub Actions' default -e/-o pipefail flags, so
+        # without setting them here a pytest failure piped into tee would be
+        # masked (the pipeline's exit code would be tee's, not pytest's).
+        run: |
+          set -euo pipefail
+          pytest tests/test_integration.py tests/test_integration_assembly.py -v -rs | tee /tmp/integration.log
+          ! grep -q SKIPPED /tmp/integration.log

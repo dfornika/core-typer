@@ -1,7 +1,10 @@
 # Project-specific
 *~
 test_input
+test_inputs/
 test_output
+test_outputs/
+tmp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
