@@ -75,6 +75,11 @@ def main():
         logging.debug(f"Parsing blast result file: {blast_result_file}")
         parsed_alignment_result = parsers.parse_blast_result(blast_result_file)
         logging.debug(f"Parsing blast result file completed: {blast_result_file}")
+        # Persist the raw blast hits (header included) to the output dir so they
+        # remain reviewable after the tmp directory is cleaned up.
+        blast_hits_file = os.path.join(args.outdir, "blast_hits.tsv")
+        logging.info(f"Writing blast hits: {blast_hits_file}")
+        shutil.copyfile(blast_result_file, blast_hits_file)
         locus_ids = parsers.parse_locus_names_from_fasta(f"{args.scheme}.fasta")
         # Novel-allele extraction from an assembly hit's own matched region
         # isn't implemented yet - only reads-derived (kma -ef) consensus is
