@@ -125,6 +125,20 @@ def test_parse_blast_result_keeps_hits_at_distinct_query_regions():
     assert {r["allele_id"] for r in result["locusB"]} == {"1", "2"}
 
 
+def test_parse_blast_result_skips_header_row(tmp_path):
+    # blast-out.tsv may carry a tab-separated column header (written for
+    # readability); it must not be parsed as a hit.
+    blast_out = tmp_path / "blast-out.tsv"
+    header = "\t".join(parsers.BLAST_OUTFMT_FIELDS) + "\n"
+    row = "contig1\tlocusA_1\t100.000\t300\t1\t300\t1\t300\t1000\t300\t300\t1e-160\t555.0\n"
+    blast_out.write_text(header + row)
+
+    result = parsers.parse_blast_result(str(blast_out))
+
+    assert set(result.keys()) == {"locusA"}
+    assert result["locusA"][0]["allele_id"] == "1"
+
+
 def test_parse_blast_result_field_values():
     result = parsers.parse_blast_result(os.path.join(DATA_DIR, "blast-out.tsv"))
 
@@ -136,6 +150,7 @@ def test_parse_blast_result_field_values():
     assert row["template_coverage"] == 100.0
     assert row["query_identity"] == 100.0
     assert row["score"] == 555.0
+    assert row["evalue"] == 1e-160
     assert row["depth"] is None
 
 

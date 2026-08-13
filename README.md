@@ -5,15 +5,18 @@
 A Core Genome MLST (cgMLST) Typing Tool
 
 core-typer types samples from paired-end reads via [KMA](https://bitbucket.org/genomicepidemiology/kma),
-or from an assembly/contigs FASTA via `blastn` (NCBI BLAST+); its allele-calling
-approach is heavily influenced by CGE's
-[cgMLSTFinder](https://bitbucket.org/genomicepidemiology/cgmlstfinder).
+or from an assembly via `blastn` (NCBI BLAST+) after extracting coding sequences
+(CDS) with [pyrodigal](https://github.com/althonos/pyrodigal) (pre-extracted CDS
+can also be supplied directly). Its allele-calling approach is heavily influenced
+by CGE's [cgMLSTFinder](https://bitbucket.org/genomicepidemiology/cgmlstfinder),
+and the per-CDS assembly approach mirrors [locidex](https://github.com/phac-nml/locidex).
 
 ## Requirements
 
 - Python >= 3.9
+- `pyrodigal` (installed automatically as a pip dependency) - used to extract CDS for `--assembly` input
 - For read input (`--R1`/`--R2`): [kma](https://bitbucket.org/genomicepidemiology/kma) on `PATH` (not a Python/pip dependency - install separately, e.g. `conda install -c bioconda kma`), and a cgMLST scheme indexed with `kma_index` (produces `<scheme>.name`, `<scheme>.comp.b`, etc.)
-- For assembly input (`--assembly`): NCBI `blastn`/`makeblastdb` on `PATH` (e.g. `conda install -c bioconda blast`), and a scheme indexed with `makeblastdb -dbtype nucl` (produces `<scheme>.nin`, `<scheme>.nsq`, etc.) - see "Assembly input" below for an important naming requirement
+- For assembly/CDS input (`--assembly`/`--cds`): NCBI `blastn`/`makeblastdb` on `PATH` (e.g. `conda install -c bioconda blast`), and a scheme indexed with `makeblastdb -dbtype nucl` (produces `<scheme>.nin`, `<scheme>.nsq`, etc.; large schemes are split into volumes - `<scheme>.00.nin`, ..., plus a `<scheme>.nal` alias - which is fully supported) - see "Assembly / CDS input" below for an important naming requirement
 - The two indexes can coexist under the same `--scheme` prefix if you want to support both input modes against one scheme
 
 ## Installation
@@ -26,8 +29,9 @@ pip install -e .
 
 ```
 usage: core-typer [-h] [-v] [-t THREADS] [-p PREFIX] [--min-identity MIN_IDENTITY] [--min-coverage MIN_COVERAGE]
-                  [--R1 R1] [--R2 R2] [--assembly ASSEMBLY] [--scheme SCHEME]
-                  [--tmpdir TMPDIR] [--log-level LOG_LEVEL] [--outdir OUTDIR]
+                  [--multicopy-depth-ratio MULTICOPY_DEPTH_RATIO]
+                  [--R1 R1] [--R2 R2] [--assembly ASSEMBLY] [--cds CDS] [--scheme SCHEME]
+                  [--tmpdir TMPDIR] [--no-cleanup] [--log-level LOG_LEVEL] [--outdir OUTDIR]
 
 A cgMLST Typing Tool
 
@@ -42,9 +46,13 @@ options:
                         Minimum percent identity (default: 100.0)
   --min-coverage MIN_COVERAGE
                         Minimum percent coverage (default: 100.0)
+  --multicopy-depth-ratio MULTICOPY_DEPTH_RATIO
+                        For read input, minimum depth of a secondary hit relative to a locus's best hit
+                        for the locus to be flagged as possible multi-copy (default: 0.15)
   --R1 R1               Read 1
   --R2 R2               Read 2
-  --assembly ASSEMBLY   Assembly/contigs fasta (alternative to --R1/--R2)
+  --assembly ASSEMBLY   Assembly/contigs fasta; CDS are extracted with pyrodigal before typing (alternative to --R1/--R2)
+  --cds CDS             Pre-extracted CDS fasta, one record per gene, e.g. from prodigal/prokka/bakta (alternative to --assembly)
   --scheme SCHEME       cgMLST scheme
   --tmpdir TMPDIR       Temporary directory (default: ./tmp)
   --no-cleanup          Do not cleanup temporary directory
@@ -53,17 +61,30 @@ options:
   --outdir OUTDIR       Output directory
 ```
 
-Provide either `--R1`/`--R2` (reads, via `kma`) or `--assembly` (contigs, via `blastn`) - not both.
+Provide exactly one input: `--R1`/`--R2` (reads, via `kma`), `--assembly` (a genome assembly, via `blastn` on pyrodigal-extracted CDS), or `--cds` (pre-extracted CDS, via `blastn`).
 
-### Assembly input
+### Assembly / CDS input
 
-`--assembly` requires the scheme's combined FASTA to be kept alongside the
-blast db, named `<scheme>.fasta` (i.e. use the same path for both `-in` and
-as the `-out` prefix's basename):
+Assembly typing is done **per coding sequence (CDS)**, not per whole contig.
+core-typer aligns query records against the scheme's per-allele blast db, and a
+single cgMLST locus can have thousands of near-identical alleles in that db. If
+whole contigs were queried, one locus's alleles would exhaust `blastn`'s
+`-max_target_seqs` cap and crowd out every other locus on the contig. Extracting
+CDS first - one query record per gene, as [locidex](https://github.com/phac-nml/locidex)
+does - confines each query's hits to its own locus's alleles.
+
+- `--assembly` runs `pyrodigal` on the assembly to predict CDS, then blasts them.
+- `--cds` skips prediction and blasts a CDS FASTA you supply (one record per gene, e.g. from prodigal/prokka/bakta).
+
+Both require the scheme's combined FASTA to be kept alongside the blast db,
+named `<scheme>.fasta` (i.e. use the same path for both `-in` and as the `-out`
+prefix's basename):
 
 ```
 makeblastdb -in scheme_db.fasta -dbtype nucl -out scheme_db
 core-typer --assembly assembly.fasta --scheme scheme_db --outdir out
+# or, with CDS you extracted yourself:
+core-typer --cds cds.fasta --scheme scheme_db --outdir out
 ```
 
 This requirement exists because `blastdbcmd -entry all` (the obvious way to
@@ -71,23 +92,31 @@ list every template already in a blast db) turned out to be unreliable
 across blast+ versions for non-accession-style headers like ours - reading
 the original FASTA directly is simpler and doesn't depend on it.
 
+`blastn` is run with `-max_target_seqs 50 -evalue 0.0001`: `-evalue` filters
+out chance alignments, and `-max_target_seqs` caps how many of the surviving
+hits are kept per query (best-scoring first). 50 was chosen empirically as the
+smallest cap that reliably returns each CDS's true best allele on a real scheme
+(a cap of 10 occasionally dropped it; much larger caps only add borderline
+paralogous hits at a large output-size cost).
+
 kma's own assembly/contigs preset (`-asm`) was tried first and rejected:
 empirically, against a synthetic scheme it missed 10-15% of loci that were
 exact matches to a catalogued allele, for reasons that weren't resolved by
 relaxing kma's `-p` or `-mrs`. `blastn` found every exact match reliably in
-the same tests, so assembly input goes through `blastn` instead of `kma`.
+the same tests, so assembly/CDS input goes through `blastn` instead of `kma`.
 
 Two known differences from `--R1`/`--R2` mode:
 - `depth` is always blank - there's no read-depth concept for an already-assembled contig.
-- `novel_allele_hash`/`novel_alleles.fsa` extraction isn't implemented yet for assembly input (it relies on kma's `-ef` consensus output, which has no `blastn` equivalent) - these are always blank/empty for `--assembly` runs.
+- `novel_allele_hash`/`novel_alleles.fsa` extraction isn't implemented yet for assembly/CDS input (it relies on kma's `-ef` consensus output, which has no `blastn` equivalent) - these are always blank/empty for `--assembly`/`--cds` runs.
 
-`possible_multicopy_loci.csv`/`num_hits` still work for assembly input:
+`possible_multicopy_loci.csv`/`num_hits` still work for assembly/CDS input:
 `blastn`, unlike kma's competitive read mapping, reports every hit above its
 significance threshold, including several similar catalogued alleles all
 matching the same genomic region - core-typer collapses hits that overlap
 substantially on the query down to the single best-scoring one before
 calling, so a locus with several similar catalogued alleles isn't mistaken
-for a multi-copy locus.
+for a multi-copy locus. Distinct CDS matching the same locus (a genuine
+duplication) are kept as separate hits.
 
 ## Output files
 
@@ -104,8 +133,10 @@ matches CGE cgMLSTFinder's approach.
   - `novel_allele_hash`: for a `divergent` locus with full template coverage and a clean (unambiguous) consensus, the md5 hash of the sample's own observed sequence at that locus - a candidate for submission as a genuinely new allele. Also written out as FASTA in `novel_alleles.fsa`. Blank otherwise.
   - `query_identity`, `template_identity`, `template_coverage`, `depth`, `score`, `template_length`: from the best-scoring hit; blank for `no_hit`
   - `num_hits`: total number of candidate templates found for this locus (usually 1). Only the single best-scoring hit is ever called - a value `> 1` means more than one candidate was found and the others were discarded; see `possible_multicopy_loci.csv`.
-- `novel_alleles.fsa` - FASTA of the observed consensus sequence for each `divergent`+full-coverage+clean locus, headers carrying the locus id and its `novel_allele_hash`. Empty if there are none. Reads input only (see "Assembly input" below).
-- `possible_multicopy_loci.csv` - one row per candidate hit, for any locus with more than one (`num_hits > 1` in `allele_calls.csv`). A genuine second gene copy can result in more than one hit being found for a locus instead of it being silently merged into the first - this is evidence of a *possible* duplication/multi-copy locus, not confirmation (core-typer doesn't yet combine or otherwise specially handle multi-copy loci - it still just calls the single best hit in `allele_calls.csv`). Empty if there's no such evidence.
+- `novel_alleles.fsa` - FASTA of the observed consensus sequence for each `divergent`+full-coverage+clean locus, headers carrying the locus id and its `novel_allele_hash`. Empty if there are none. Reads input only (see "Assembly / CDS input" above).
+- `possible_multicopy_loci.csv` - one row per candidate hit, for any locus with more than one *substantial* hit. A genuine second gene copy can result in more than one hit being found for a locus instead of it being silently merged into the first - this is evidence of a *possible* duplication/multi-copy locus, not confirmation (core-typer doesn't yet combine or otherwise specially handle multi-copy loci - it still just calls the single best hit in `allele_calls.csv`). Empty if there's no such evidence.
+  - For **read input**, secondary hits are filtered by depth: at high coverage a few stray reads map to other near-identical alleles of the same single-copy locus, and kma reports each as a shallow separate hit. A secondary hit only counts when its depth is at least `--multicopy-depth-ratio` (default 0.15) of the locus's best-hit depth, so a locus is flagged only when a second copy draws comparable coverage. Without this filter the report is dominated by shallow noise (e.g. thousands of loci flagged at 100x depth vs. a few dozen genuine candidates).
+  - For **assembly/CDS input** there is no depth; hits are already deduplicated to distinct genomic regions, so any locus with more than one hit is reported.
 - `allele_profile.csv` - a two-row locus/allele_id matrix (header + one sample row) for downstream cgMLST comparison tools; always `-` for anything not `called`, regardless of `divergent` vs `no_hit`
 - `qc.csv` - `num_loci`, `num_called_alleles`, `num_divergent`, `num_no_hit`, `num_possible_multicopy_loci`, `percent_called`, `mean_depth`, `stdev_depth` (`mean_depth`/`stdev_depth` are computed over loci with any hit - `called` or `divergent` - since `no_hit` loci have no depth measurement)
 

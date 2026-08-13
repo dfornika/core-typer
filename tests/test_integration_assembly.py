@@ -1,8 +1,12 @@
 """
-End-to-end tests for --assembly (blastn) input, against the same small
-synthetic cgMLST scheme used by test_integration.py (see
-scripts/synthetic_scheme.py). These require blastn and makeblastdb on PATH,
-and are skipped otherwise.
+End-to-end tests for blast-based CDS input, against the same small synthetic
+cgMLST scheme used by test_integration.py (see scripts/synthetic_scheme.py).
+These require blastn and makeblastdb on PATH, and are skipped otherwise.
+
+These drive the blast path via --cds rather than --assembly: the synthetic
+"genome" is a bare concatenation of allele sequences, not a genome with real
+ORFs, so it exercises the blast/parse/call path directly without depending on
+pyrodigal gene prediction (which --assembly would run first).
 """
 import csv
 import os
@@ -23,11 +27,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run_core_typer(assembly, scheme_db, outdir, tmpdir, min_identity=100.0, min_coverage=100.0):
+def _run_core_typer(cds, scheme_db, outdir, tmpdir, min_identity=100.0, min_coverage=100.0):
     subprocess.run(
         [
             sys.executable, "-m", "core_typer",
-            "--assembly", assembly,
+            "--cds", cds,
             "--scheme", scheme_db,
             "--outdir", outdir,
             "--tmpdir", tmpdir,

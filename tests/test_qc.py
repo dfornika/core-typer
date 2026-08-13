@@ -70,6 +70,26 @@ def test_calculate_qc_stats_counts_possible_multicopy_loci():
     assert stats["num_possible_multicopy_loci"] == 2
 
 
+def test_calculate_qc_stats_multicopy_count_matches_filtered_report():
+    # When the (depth-filtered) multicopy records are passed, the QC count is
+    # the number of distinct loci in them - matching possible_multicopy_loci.csv
+    # - not the raw num_hits>1 count.
+    allele_calls = [
+        make_call("locusA", "1", 20.0, "called", num_hits=1),
+        make_call("locusB", "1", 18.0, "called", num_hits=2),
+        make_call("locusC", "-", 5.0, "divergent", num_hits=3),
+    ]
+    # Only locusB survived depth filtering (locusC's second hit was shallow).
+    possible_multicopy_loci = [
+        {"locus_id": "locusB", "allele_id": "1"},
+        {"locus_id": "locusB", "allele_id": "7"},
+    ]
+
+    stats = qc.calculate_qc_stats(allele_calls, possible_multicopy_loci)
+
+    assert stats["num_possible_multicopy_loci"] == 1
+
+
 def test_calculate_qc_stats_single_locus_no_stdev_error():
     allele_calls = [make_call("locusA", "1", 20.0, "called")]
 

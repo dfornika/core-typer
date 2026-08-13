@@ -90,7 +90,7 @@ def parse_kma_result(kma_result_file):
     return kma_result_by_locus_id
 
 
-BLAST_OUTFMT_FIELDS = ["qseqid", "sseqid", "pident", "length", "qstart", "qend", "sstart", "send", "qlen", "slen", "nident", "bitscore"]
+BLAST_OUTFMT_FIELDS = ["qseqid", "sseqid", "pident", "length", "qstart", "qend", "sstart", "send", "qlen", "slen", "nident", "evalue", "bitscore"]
 BLAST_OUTFMT = "6 " + " ".join(BLAST_OUTFMT_FIELDS)
 
 
@@ -124,6 +124,10 @@ def parse_blast_result(blast_result_file, min_overlap_fraction=0.5):
     with open(blast_result_file, 'r') as f:
         reader = csv.DictReader(f, delimiter='\t', fieldnames=BLAST_OUTFMT_FIELDS)
         for row in reader:
+            # blast-out.tsv carries a tab-separated header row (written for
+            # readability - blastn's own outfmt 6 has none); skip it.
+            if row["qseqid"] == "qseqid":
+                continue
             locus_id, allele_id, allele_hash = parse_template_name(row["sseqid"])
             slen = int(row["slen"])
             record = {
@@ -131,7 +135,12 @@ def parse_blast_result(blast_result_file, min_overlap_fraction=0.5):
                 "locus_id": locus_id,
                 "allele_id": allele_id,
                 "allele_hash": allele_hash,
+                # 'score' is the aligner-agnostic ranking key shared with
+                # parse_kma_result (choose_best_allele / _dedupe_overlapping_hits
+                # sort on it); for blast it is the bitscore. 'evalue' is kept
+                # alongside as blast's significance measure.
                 "score": float(row["bitscore"]),
+                "evalue": float(row["evalue"]),
                 "template_length": slen,
                 "template_identity": round(int(row["nident"]) / slen * 100, 2),
                 "template_coverage": round((abs(int(row["send"]) - int(row["sstart"])) + 1) / slen * 100, 2),
@@ -243,43 +252,6 @@ def parse_kma_mapstat(kma_mapstat_file):
         parsed_kma_mapstat_by_locus_id[locus_id] = sorted(kma_mapstat, key=lambda k: k["map_score_sum"], reverse=True)
 
     return parsed_kma_mapstat_by_locus_id
-
-
-def parse_kma_aln(kma_aln_file):
-    """
-    Parse a kma aln file into a dict of lists of dicts.
-    """
-    alignments_by_template_id = {}
-    with open(kma_aln_file, 'r') as f:
-        alignment = {}
-        template_id = None
-        template_seq = ""
-        query_seq = ""
-        for line in f:
-            line = line.strip()
-            if line.startswith("#"):
-                if template_id:
-                    alignment[template_id] = {
-                        'template': template_seq,
-                        'query': query_seq,
-                    }
-                    template_seq = ""
-                    query_seq = ""
-                template_id = line.split(" ")[1]
-            else:
-                if line.startswith('template'):
-                    template_seq_line = line.split(":")[1].strip()
-                    template_seq += template_seq_line
-                elif line.startswith('query'):
-                    query_seq_line = line.split(":")[1].strip()
-                    query_seq += query_seq_line
-
-        alignment[template_id] = {
-            'template': template_seq,
-            'query': query_seq,
-        }
-
-    return alignments_by_template_id
 
 
 def parse_allele_calls(allele_calls_path):

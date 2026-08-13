@@ -8,6 +8,7 @@ import shutil
 
 from . import __version__
 from . import alignment
+from . import annotation
 from . import allele_calling
 from . import qc
 from . import config
@@ -22,9 +23,12 @@ def main():
     parser.add_argument('-p', '--prefix', help='Prefix for output files (default: taken from R1 fastq file name)')
     parser.add_argument('--min-identity', type=float, default=100.0, help='Minimum percent identity (default: 100.0)')
     parser.add_argument('--min-coverage', type=float, default=100.0, help='Minimum percent coverage (default: 100.0)')
+    parser.add_argument('--multicopy-depth-ratio', type=float, default=allele_calling.MULTICOPY_MIN_DEPTH_RATIO,
+                        help='For read input, minimum depth of a secondary hit relative to a locus\'s best hit for the locus to be flagged as possible multi-copy (default: %(default)s)')
     parser.add_argument('--R1', help='Read 1')
     parser.add_argument('--R2', help='Read 2')
-    parser.add_argument('--assembly', help='Assembly/contigs fasta (alternative to --R1/--R2)')
+    parser.add_argument('--assembly', help='Assembly/contigs fasta; CDS are extracted with pyrodigal before typing (alternative to --R1/--R2)')
+    parser.add_argument('--cds', help='Pre-extracted CDS fasta, one record per gene, e.g. from prodigal/prokka/bakta (alternative to --assembly)')
     parser.add_argument('--scheme', help='cgMLST scheme')
     parser.add_argument('--tmpdir', default='./tmp', help='Temporary directory (default: ./tmp)')
     parser.add_argument('--no-cleanup', action='store_true', help='Do not cleanup temporary directory')
@@ -44,20 +48,29 @@ def main():
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
+    is_blast = bool(args.assembly or args.cds)
+
     alignment_params = {
         'threads': args.threads,
         'scheme': args.scheme,
         'tmpdir': analysis_tmpdir,
     }
-    if args.assembly:
-        alignment_params['assembly'] = args.assembly
+    if is_blast:
+        if args.cds:
+            query_cds_file = args.cds
+        else:
+            query_cds_file = os.path.join(analysis_tmpdir, "cds.fasta")
+            logging.info(f"Extracting CDS from assembly with pyrodigal: {args.assembly}")
+            num_cds = annotation.extract_cds(args.assembly, query_cds_file)
+            logging.info(f"Extracted {num_cds} CDS: {query_cds_file}")
+        alignment_params['query'] = query_cds_file
     else:
         alignment_params['R1'] = args.R1
         alignment_params['R2'] = args.R2
 
     alignment.run_alignment(alignment_params)
 
-    if args.assembly:
+    if is_blast:
         blast_result_file = os.path.join(analysis_tmpdir, "blast-out.tsv")
         logging.debug(f"Parsing blast result file: {blast_result_file}")
         parsed_alignment_result = parsers.parse_blast_result(blast_result_file)
@@ -91,14 +104,14 @@ def main():
     allele_calling.write_novel_alleles(novel_alleles, novel_alleles_file)
     logging.debug(f"Writing candidate novel alleles completed: {novel_alleles_file}")
 
-    possible_multicopy_loci = allele_calling.find_possible_multicopy_loci(parsed_alignment_result)
+    possible_multicopy_loci = allele_calling.find_possible_multicopy_loci(parsed_alignment_result, min_depth_ratio=args.multicopy_depth_ratio)
     multicopy_loci_file = os.path.join(args.outdir, "possible_multicopy_loci.csv")
     num_multicopy_loci = len({record["locus_id"] for record in possible_multicopy_loci})
     logging.info(f"Writing {num_multicopy_loci} possible multicopy locus/loci: {multicopy_loci_file}")
     allele_calling.write_possible_multicopy_loci(possible_multicopy_loci, multicopy_loci_file)
     logging.debug(f"Writing possible multicopy loci completed: {multicopy_loci_file}")
 
-    qc_stats = qc.calculate_qc_stats(allele_calls)
+    qc_stats = qc.calculate_qc_stats(allele_calls, possible_multicopy_loci)
 
     qc_stats_file = os.path.join(args.outdir, 'qc.csv')
     logging.info(f"Writing QC stats: {qc_stats_file}")

@@ -130,6 +130,31 @@ def test_find_possible_multicopy_loci_flags_loci_with_multiple_hits():
     assert multicopy_records[1]["query_identity"] == 97.0
 
 
+def test_build_complete_allele_calls_does_not_mutate_input_records():
+    # Regression: choose_best_allele must not annotate/overwrite the caller's
+    # parsed records in place. A divergent best hit (allele_id -> "-") that is
+    # also multi-copy would otherwise show "-" instead of its real allele id in
+    # the possible_multicopy_loci report, which runs off the same dicts.
+    parsed_kma_result = {
+        "locusA": [
+            make_kma_result("5", score=900, query_identity=98.0),
+            make_kma_result("9", score=500, query_identity=95.0),
+        ],
+    }
+
+    allele_calls = allele_calling.build_complete_allele_calls(["locusA"], parsed_kma_result)
+    multicopy_records = allele_calling.find_possible_multicopy_loci(parsed_kma_result)
+
+    assert allele_calls[0]["call_status"] == "divergent"
+    assert allele_calls[0]["allele_id"] == "-"
+    assert allele_calls[0]["closest_allele_id"] == "5"
+    # The best hit keeps its real allele_id in the multicopy report.
+    assert [r["allele_id"] for r in multicopy_records] == ["5", "9"]
+    # And the original record was left untouched (no injected keys).
+    assert parsed_kma_result["locusA"][0]["allele_id"] == "5"
+    assert "closest_allele_id" not in parsed_kma_result["locusA"][0]
+
+
 def test_find_possible_multicopy_loci_empty_when_no_locus_has_multiple_hits():
     parsed_kma_result = {
         "locusA": [make_kma_result("1", score=500)],
@@ -139,6 +164,65 @@ def test_find_possible_multicopy_loci_empty_when_no_locus_has_multiple_hits():
     multicopy_records = allele_calling.find_possible_multicopy_loci(parsed_kma_result)
 
     assert multicopy_records == []
+
+
+def test_find_possible_multicopy_loci_ignores_shallow_secondary_hit():
+    # A deep primary hit with a shallow secondary hit (a few stray reads on a
+    # near-identical allele of the same single-copy locus) is NOT multi-copy.
+    parsed_kma_result = {
+        "locusA": [
+            make_kma_result("1", score=500, depth=100.0),
+            make_kma_result("2", score=300, query_identity=97.0, depth=1.5),
+        ],
+    }
+
+    multicopy_records = allele_calling.find_possible_multicopy_loci(parsed_kma_result)
+
+    assert multicopy_records == []
+
+
+def test_find_possible_multicopy_loci_keeps_substantial_secondary_hit():
+    # A secondary hit at comparable depth (a genuine second copy) IS reported.
+    parsed_kma_result = {
+        "locusA": [
+            make_kma_result("1", score=500, depth=100.0),
+            make_kma_result("2", score=300, query_identity=97.0, depth=60.0),
+        ],
+    }
+
+    multicopy_records = allele_calling.find_possible_multicopy_loci(parsed_kma_result)
+
+    assert [r["allele_id"] for r in multicopy_records] == ["1", "2"]
+
+
+def test_find_possible_multicopy_loci_depth_ratio_is_tunable():
+    parsed_kma_result = {
+        "locusA": [
+            make_kma_result("1", score=500, depth=100.0),
+            make_kma_result("2", score=300, query_identity=97.0, depth=12.0),
+        ],
+    }
+
+    # 12/100 = 0.12: below the 0.15 default (not flagged), above a 0.10 ratio.
+    assert allele_calling.find_possible_multicopy_loci(parsed_kma_result) == []
+    flagged = allele_calling.find_possible_multicopy_loci(parsed_kma_result, min_depth_ratio=0.10)
+    assert [r["allele_id"] for r in flagged] == ["1", "2"]
+
+
+def test_find_possible_multicopy_loci_without_depth_flags_all_multihit_loci():
+    # Assembly/blast hits carry no depth (None) and are pre-deduped to distinct
+    # genomic regions, so the ratio test does not apply and any locus with more
+    # than one hit is reported.
+    parsed_kma_result = {
+        "locusA": [
+            make_kma_result("1", score=500, depth=None),
+            make_kma_result("2", score=300, query_identity=97.0, depth=None),
+        ],
+    }
+
+    multicopy_records = allele_calling.find_possible_multicopy_loci(parsed_kma_result)
+
+    assert [r["allele_id"] for r in multicopy_records] == ["1", "2"]
 
 
 def test_write_possible_multicopy_loci(tmp_path):

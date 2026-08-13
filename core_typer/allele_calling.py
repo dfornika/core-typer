@@ -48,6 +48,12 @@ def choose_best_allele(kma_results, min_identity=100.0, min_coverage=100.0):
         if kma_result["score"] > best_allele["score"]:
             best_allele = kma_result
 
+    # Copy before annotating: the chosen record is still a reference to a
+    # dict inside the caller's parsed_kma_result, which find_possible_multicopy_loci
+    # reads afterwards. Mutating it in place (e.g. allele_id -> "-" for a
+    # divergent call) would otherwise corrupt that record in the multicopy report.
+    best_allele = dict(best_allele)
+
     best_allele["closest_allele_id"] = best_allele["allele_id"]
     best_allele["closest_allele_hash"] = best_allele.get("allele_hash")
     # The original, un-split KMA template name (e.g. "locusA_1" or, for
@@ -110,20 +116,59 @@ def build_complete_allele_calls(locus_ids, parsed_kma_result, min_identity=100.0
     return allele_calls
 
 
-def find_possible_multicopy_loci(parsed_kma_result):
+MULTICOPY_MIN_DEPTH_RATIO = 0.15
+
+
+def _substantial_multicopy_hits(hits, min_depth_ratio):
     """
-    For each locus where kma reported more than one candidate hit, return
-    all of that locus's hits as possible multi-copy evidence - independent
-    of whether any of them individually meet the calling thresholds. A
-    genuine second (or third...) copy of a locus, if divergent enough from
-    the first, can make kma report it as a separate hit rather than merging
-    it into the first; build_complete_allele_calls/choose_best_allele only
-    ever keep the single best-scoring hit per locus, so this is currently
-    the only place that evidence survives.
+    Given a locus's hits (already the full candidate list), return those that
+    are substantial enough to count as multi-copy evidence, best-scoring first.
+
+    For read data every hit carries a depth: at high coverage a handful of
+    stray reads map to other, near-identical alleles of the same single-copy
+    locus, and kma reports each as a separate low-depth hit. These are not a
+    second copy. A secondary hit is only kept when its depth is at least
+    min_depth_ratio of the locus's best (deepest) hit, so shallow noise hits
+    are dropped while a genuine second copy - which draws comparable coverage -
+    is retained.
+
+    When depth is unavailable (assembly/blast hits, where depth is None), no
+    ratio test is possible; blast hits have already been deduplicated to
+    distinct genomic regions upstream, so every remaining hit is treated as a
+    genuine separate copy.
+    """
+    hits_sorted = sorted(hits, key=lambda h: h["score"], reverse=True)
+    depths = [hit.get("depth") for hit in hits_sorted]
+    if any(depth is None for depth in depths):
+        return hits_sorted
+    max_depth = max(depths)
+    if max_depth <= 0:
+        return hits_sorted
+    return [hit for hit in hits_sorted if hit["depth"] >= min_depth_ratio * max_depth]
+
+
+def find_possible_multicopy_loci(parsed_kma_result, min_depth_ratio=MULTICOPY_MIN_DEPTH_RATIO):
+    """
+    For each locus with more than one substantial candidate hit, return those
+    hits as possible multi-copy evidence - independent of whether any of them
+    individually meet the calling thresholds. A genuine second (or third...)
+    copy of a locus, if divergent enough from the first, can make kma report it
+    as a separate hit rather than merging it into the first;
+    build_complete_allele_calls/choose_best_allele only ever keep the single
+    best-scoring hit per locus, so this is currently the only place that
+    evidence survives.
+
+    "Substantial" is decided by _substantial_multicopy_hits: for read data, a
+    secondary hit must reach min_depth_ratio of the locus's best-hit depth,
+    which suppresses the many shallow, spurious secondary hits produced at high
+    coverage. A locus is only reported when at least two hits survive this test.
 
     :param parsed_kma_result: The kma results, indexed by locus_id
     :type parsed_kma_result: dict[str, list[dict]]
-    :return: One record per hit, for loci with more than one hit, sorted by locus_id then score descending
+    :param min_depth_ratio: Minimum depth of a secondary hit relative to the
+        locus's best hit for it to count as multi-copy evidence (read data only)
+    :type min_depth_ratio: float
+    :return: One record per substantial hit, for loci with more than one such hit, sorted by locus_id then score descending
     :rtype: list[dict]
     """
     multicopy_records = []
@@ -131,7 +176,10 @@ def find_possible_multicopy_loci(parsed_kma_result):
         kma_results = parsed_kma_result[locus_id]
         if len(kma_results) <= 1:
             continue
-        for kma_result in sorted(kma_results, key=lambda r: r["score"], reverse=True):
+        substantial_hits = _substantial_multicopy_hits(kma_results, min_depth_ratio)
+        if len(substantial_hits) <= 1:
+            continue
+        for kma_result in substantial_hits:
             multicopy_records.append({
                 "locus_id": locus_id,
                 "allele_id": kma_result["allele_id"],
