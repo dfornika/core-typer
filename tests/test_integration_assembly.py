@@ -89,3 +89,18 @@ def test_assembly_depth_is_none(tmp_path, synthetic_scheme_blastdb):
         rows = list(csv.DictReader(f))
 
     assert all(row["depth"] == "" for row in rows)
+
+
+def test_assembly_persists_blast_hits_with_header(tmp_path, synthetic_scheme_blastdb):
+    from core_typer import parsers
+
+    scheme_db, genome_fasta, true_profile = synthetic_scheme_blastdb
+
+    outdir = tmp_path / "out"
+    _run_core_typer(genome_fasta, scheme_db, str(outdir), str(tmp_path / "tmp"))
+
+    blast_hits = outdir / "blast_hits.tsv"
+    assert blast_hits.is_file()
+    lines = blast_hits.read_text().splitlines()
+    assert lines[0] == "\t".join(parsers.BLAST_OUTFMT_FIELDS)
+    assert len(lines) > 1

@@ -139,6 +139,7 @@ matches CGE cgMLSTFinder's approach.
   - For **assembly/CDS input** there is no depth; hits are already deduplicated to distinct genomic regions, so any locus with more than one hit is reported.
 - `allele_profile.csv` - a two-row locus/allele_id matrix (header + one sample row) for downstream cgMLST comparison tools; always `-` for anything not `called`, regardless of `divergent` vs `no_hit`
 - `qc.csv` - `num_loci`, `num_called_alleles`, `num_divergent`, `num_no_hit`, `num_possible_multicopy_loci`, `percent_called`, `mean_depth`, `stdev_depth` (`mean_depth`/`stdev_depth` are computed over loci with any hit - `called` or `divergent` - since `no_hit` loci have no depth measurement)
+- `blast_hits.tsv` - the raw `blastn` hit table (outfmt 6, with a column header), copied from the tmp directory so it stays reviewable after cleanup. `--assembly`/`--cds` runs only.
 
 ### Hash-based allele identifiers
 
